@@ -1,7 +1,11 @@
-import javax.swing.*;
+
+
+import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
-import java.awt.image.Raster;
+import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Created with IntelliJ IDEA.
@@ -12,247 +16,357 @@ import java.util.ArrayList;
  */
 public class ChemicalEnvironment {
 
-    public static double grain = 20.0;
-    public double[][] profile;
-    public double[][] oldprofile;
-    public Complex[][] fProfile;
-    public Complex[][] kernel;
-    public static double production  = 0.0;
-    public static double degradation = 0.00; // Equilibrium values of 20.
-    Fourier2D f2d;
+    public static double  grain = 6d;
+    public static double  baseConcentration = 10;
+    public static double  L = 1600.;      //
+    public static double  W = 15.0;       //
+    public static int     k = 1;       // Num branch levels
+    public static double  shrinkage = 1;
+    public static double  skew  = -2.0;       // (70.7 <-> 2262)
+    public static double  trunk = 250;
+    public static double  asym = 1;
+    public static double  padding = 100;
+    public static double  environment_depth = 50;
 
-    public ChemicalEnvironment(double dMin, double dMax){
+    //public static double immobileOn = 0.07;
+    //public static double immobileOff = 0.03;
 
-        int iMax = ((int) (MelaMigration.dimensions[2]/grain))-1;
-        profile = new double[iMax][];
+    public static final double AVAGADRO =  6.022140857E23;
+    public static double sMax   = 8;
+    public static double kM     = 0.2;
+    public static double  DiffC  = 16000;
+    //public static double  DiffC2  = 500;
+    public double[][] chemvironment = new double[(int)(AgentBasedSimulation.dimensions[2]/grain)][(int) (AgentBasedSimulation.dimensions[3]/grain)];
+    public ArrayList<ArrayList<EnvironmentPoint>> profile;
+    public ArrayList<EnvironmentPoint> freepoints;
+
+
+    public static double production  = 0.000;
+    public static double degradation = 0.0; // Equilibrium values of 20.
+
+    private ChemicalEnvironment(){
+
+        profile = new ArrayList<ArrayList<EnvironmentPoint>>();
+    }
+
+
+    public static ChemicalEnvironment SetUpEnvironment(){
+
+        ChemicalEnvironment ce = new ChemicalEnvironment();
+
+        int iMax = ((int) (AgentBasedSimulation.dimensions[2]/grain));
+        int jMax = ((int) (AgentBasedSimulation.dimensions[3]/grain));
 
         for(int i = 0; i<iMax; i++){
 
-            double[] dNew = new double[((int) (MelaMigration.dimensions[3]/grain))];
-            for(int j = 0; j<dNew.length; j++){
-                if(i<=(MigrationSimulation.padding/grain)) dNew[j] = 0.0;
-                else dNew[j] = dMin+ (((double) i)/iMax)*(dMax-dMin);
+            ArrayList<EnvironmentPoint>  alENV = new ArrayList<EnvironmentPoint>();
+            for(int j = 0; j<jMax; j++){
+                EnvironmentPoint ep = new EnvironmentPoint(i,j);
+                //if(i*grain<100) ep.start = true;
+                if(ep.open) {
+                    /*if(MigrationSimulation.twospot) {
+                        if((i*grain-1300d)*(i*grain-1300d)+(j*grain-0.5*AgentBasedSimulation.dimensions[1])*(j*grain-0.5*AgentBasedSimulation.dimensions[1])<100*100){
+                            ep.c = ep.c_m1 = baseConcentration;
+                        }
+                        else{
+                            double sqd = (i*grain-800)*(i*grain-800)+(j*grain-0.5*AgentBasedSimulation.dimensions[1])*(j*grain-0.5*AgentBasedSimulation.dimensions[1]);
+                            if(sqd>140*140&&sqd<152*152){
+                                ep.cellBlock = true;
+                            }
+                        }
+                    }
+                    else{  */
+                         //ep.c = ep.c_m1 = baseConcentration;
+                    //}
+                }
+                if(AgentBasedSimulation.pinned) {
+                    if(i==0){
+                        ep.fixed = true;
+                        ep.c = 0;
+                        ep.c_m1 = 0;
+                        ep.c_m2 = 0;
+                    }
+                    else if(i==(iMax-1)) {
+                        ep.fixed = true;
+                        ep.c = ep.c_m1 = baseConcentration;
+                    }
+                }
+                alENV.add(ep);
             }
-            profile[i] = dNew;
+            ce.profile.add(alENV);
+        }
+        ce.SetUpDiffusion();
+        return ce;
+    }
+
+    public static ChemicalEnvironment EnvironmentFromFile(String imageFile){
+
+        ChemicalEnvironment ce = new ChemicalEnvironment();
+
+        File f = new File(imageFile);
+        BufferedImage img;
+
+        if(!f.exists()){
+            System.out.println("No such file as "+imageFile);
+            ce = SetUpEnvironment();
+            return ce;
+        }
+        try{
+            img =  ImageIO.read(f);
+        }
+        catch(IOException e){
+            System.out.println("Could not open "+imageFile);
+            ce = SetUpEnvironment();
+            return ce;
+        }
+        for(int i = 0; i < img.getWidth(); i++){
+
+            ArrayList<EnvironmentPoint>  alENV = new ArrayList<EnvironmentPoint>();
+
+            for(int j = 0; j < img.getHeight(); j++){
+
+                EnvironmentPoint ep = new EnvironmentPoint(i,j);
+
+                int clr = img.getRGB(i,j);
+
+                int blue = clr & 0xff;
+                int green = (clr & 0xff00) >> 8;
+                int red = (clr & 0xff0000) >> 16;
+
+
+
+                if(red<20&&green<20&&blue<20)  ep.open  = false;
+                if(red>200&&green<20) ep.fixed = true;
+                if(green<20&&blue>200) {
+                    ep.start = true;
+                    if(AgentBasedSimulation.pinned){
+                        //ep.fixed = true;
+                        //ep.c = 0;
+                    }
+
+                }
+                if(ep.open) ep.c = ep.c_m1 = ep.c_m2    = baseConcentration;
+
+                alENV.add(ep);
+            }
+            ce.profile.add(alENV);
         }
 
-        for(int i = 0; i<iMax; i++){
-
-        double[] dNew = new double[((int) (MelaMigration.dimensions[3]/grain))];
-        for(int j = 0; j<dNew.length; j++){
-            if(i<=(MigrationSimulation.padding/grain)) dNew[j] = 0.0;
-            //else if(i==iMax-1) dNew[j] = dMax;
-            else dNew[j] = dMin+ (((double) i)/iMax)*(dMax-dMin);
-        }
-        profile[i] = dNew;
+        ce.SetUpDiffusion();
+        return ce;
     }
 
-        oldprofile = profile.clone();
+    public void DoDegradation(){
+        freepoints.stream().parallel().forEach(ep -> {
 
-        if(MelaMigration.convolutionDiffusion){
-            f2d = new Fourier2D(profile.length,profile[0].length);
-            fProfile = new Complex[profile.length][profile[0].length];
-            kernel   = createKernel(profile.length,profile[0].length,Math.sqrt(MelaMigration.dt*MigrationSimulation.DiffC/grain));
+            if (ep.fixed) return;
 
-            for(int i=0; i<fProfile.length; i++){
-                for(int j=0;j<fProfile[i].length; j++){
-                    fProfile[i][j] = new Complex(0,0);
-                }
-            }
-        }
-    }
+            /*ep.c -= ep.c2*AgentBasedSimulation.dt;
+            ep.c2-=0.8*ep.c2*AgentBasedSimulation.dt;
+            ep.c2_m1-=2.4*ep.c2*AgentBasedSimulation.dt;
 
-    private int[] ConvertCoordinates(double cx, double cy){
 
-        int x = (int) Math.floor(cx/grain);
-        int y = (int) Math.floor(cy/grain);
-
-        x = Math.max(0,Math.min(x,profile.length-1));
-        y = Math.max(0,Math.min(y,profile[x].length-1));
-
-        return new int[]{x,y};
-    }
-
-    public void TakeAtLocation(double dx, double dy, double amount){
-        int[] ic = ConvertCoordinates(dx,dy);
-
-        profile[ic[0]][ic[1]] -=amount;
-    }
-
-    public void add(double cn){
-        for(int i=0; i<profile.length; i++){
-            for(int j=0; j<profile[i].length; j++){
-                profile[i][j]+=cn;
-            }
-        }
-    }
-
-    public double GetLocationConcentration(double dx, double dy){
-        int[] ic = ConvertCoordinates(dx,dy);
-        return profile[ic[0]][ic[1]];
-    }
-
-    public double[] GetGradientAtLocation(double dx, double dy){
-        int[] ic = ConvertCoordinates(dx,dy);
-        double xDiff = profile[Math.min(ic[0]+1, profile.length-1)][ic[1]] - profile[(Math.max(ic[0]-1, 0))][ic[1]];
-        double yDiff = profile[ic[0]][Math.min(ic[1]+1, profile[ic[0]].length-1)] - profile[ic[0]][Math.max(ic[1]-1, 0)];
-
-        return new double[]{xDiff/(2*grain),yDiff/(2*grain)};
+            ep.c = Math.max(ep.c,0);
+            ep.c2 = Math.max(ep.c2,0);     */
+        });
     }
 
 
-    public double GetConcentrationAtLocation(double dx, double dy){
-        int[]  ic = ConvertCoordinates(dx,dy);
+    public void SetUpDiffusion(){
 
-        double c0 = profile[ic[0]][ic[1]];
+        freepoints = new ArrayList<EnvironmentPoint>();
 
-        /*c0       += profile.get(Math.min(ic[0]+1, profile.size()-1))[ic[1]];
-        c0       += profile.get(Math.max(ic[0]-1, 0))[ic[1]];
-        c0       += profile.get(ic[0])[Math.min(ic[1]+1, profile.get(ic[0]).length-1)]
-        c0       += profile.get(ic[0])[Math.max(ic[1]-1, 0)];        */
+        for(int i=0; i<profile.size(); i++){
+            for(int j = 0; j<profile.get(i).size(); j++){
 
-        return c0/5;
-    }
+                EnvironmentPoint ep = profile.get(i).get(j);
 
-    public void diffuse(double D, double dt,double dx){
-        int iB = MelaMigration.pinned ? 1 : 0;
-        if(MelaMigration.convolutionDiffusion){
-            for(int i=0;i<profile.length;i++){
-                for(int j=0; j<profile[0].length; j++){
-                    fProfile[i][j].real = profile[i][j];
-                    fProfile[i][j].imag = 0;
-                }
-            }
-            fProfile = f2d.fft(fProfile);
-            for(int i=0;i<profile.length;i++){
-                for(int j=0; j<profile[0].length; j++){
-                    fProfile[i][j].mult(kernel[i][j]);
-                }
-            }
-            fProfile = f2d.ifft(fProfile);
+                // COMMENT OUT FOR NORMAL FUNCTION
+                /*if(ep.fixed) {
+                    ep.c  = ep.c_m1 = ep.c_m2 = baseConcentration*immobileOff/(immobileOff+immobileOn);
+                    ep.c2 = baseConcentration*immobileOn/(immobileOff+immobileOn);
+                }     */
+
+                if(!ep.open) continue;
+
+                freepoints.add(ep);
+
+                int ixp1, ixm1, iyp1, iym1;
+                ixp1 = ixm1 = i;
+                iyp1 = iym1 = j;
+
+                if(i>0)  ixm1-=1;
+                if(i<profile.size()-1)  ixp1+=1;
+                if(j>0)  iym1-=1;
+                if(j<profile.get(i).size()-1)  iyp1+=1;
 
 
+                ep.xp1 = profile.get(ixp1).get(j);
+                ep.xm1 = profile.get(ixm1).get(j);
+                ep.yp1 = profile.get(i).get(iyp1);
+                ep.ym1 = profile.get(i).get(iym1);
 
-            for(int i=0;i<profile.length;i++){
-                for(int j=0; j<profile[0].length; j++){
-                    profile[i][j] = profile.length*profile[0].length*fProfile[i][j].real;
-                }
-            }
-
-            for(int i=0;i<profile.length;i++){
-                for(int j=0; j<profile[0].length; j++){
-                    fProfile[i][j].real = profile[i][j];
-                    fProfile[i][j].imag = 0;
-                }
-            }
-            fProfile = f2d.fft(fProfile);
-            for(int i=0;i<profile.length;i++){
-                for(int j=0; j<profile[0].length; j++){
-                    fProfile[i][j].mult(kernel[i][j]);
-                }
-            }
-            fProfile = f2d.ifft(fProfile);
-
-            for(int i=0;i<profile.length;i++){
-                for(int j=0; j<profile[0].length; j++){
-                    profile[i][j] = profile.length*profile[0].length*fProfile[i][j].real;
-                }
-            }
-
-
-            //System.out.println("Fourier");
-        }
-        /*if(MelaMigration.CNM){
-            //Crank-Nicolson,
-            for(int i = 0; i<profile.length; i++){
-                for(int j = 0; j<profile[i].length; j++){
-                    int yLength = oldprofile[i].length-1;
-                    double ip1,im1,jp1,jm1;
-                    ip1 = im1 = oldprofile[i][j];
-                    jp1 =       oldprofile[i][0];
-                    jm1 = oldprofile[i][yLength];
-
-
-                    if(i > 0) im1 = oldprofile[i-1][j];
-                    if(i < oldprofile.length-1) ip1 = oldprofile[i+1][j];
-                    if(j > 0) jm1 = oldprofile[i][j-1];
-                    if(j < yLength) jp1 = oldprofile[i][j+1];
-
-                    double r = (D*dt/(dx*dx));
-
-
-                    profile[i][j] += (D*dt/dx)*(ip1+im1+jp1+jm1-4*oldprofile[i][j]);
-                }
-            }
-        }*/
-        else{
-            for(int i = iB; i<profile.length-iB; i++){
-                for(int j = 0; j<profile[i].length; j++){
-                    int yLength = oldprofile[i].length-1;
-                    double ip1,im1,jp1,jm1;
-                    ip1 = im1 = oldprofile[i][j];
-                    jp1 =       oldprofile[i][0];
-                    jm1 = oldprofile[i][yLength];
-
-
-                    if(i > 0) im1 = oldprofile[i-1]   [j];
-                    if(i < oldprofile.length-1) ip1 = oldprofile[i+1][j];
-                    if(j > 0) jm1 = oldprofile[i][j-1];
-                    if(j < yLength) jp1 = oldprofile[i][j+1];
-
-                    profile[i][j] += (D*dt/(dx*dx))*(ip1+im1+jp1+jm1-4*oldprofile[i][j])+(ChemicalEnvironment.production-ChemicalEnvironment.degradation*profile[i][j])*dt;
-                }
+                if(!ep.xp1.open) ep.xp1 = ep;
+                if(!ep.xm1.open) ep.xm1 = ep;
+                if(!ep.yp1.open) ep.yp1 = ep;
+                if(!ep.ym1.open) ep.ym1 = ep;
             }
         }
-        oldprofile = profile.clone();
+
+        /*kernel = new Kernel(){
+            @Override public void run() {
+                int gid = getGlobalId();
+
+                EnvironmentPoint ep = freepoints.get(gid);
+
+                if(ep.fixed) return;
+
+                double cpx = ep.xp1.open ? ep.xp1.c_m1 : ep.c_m1;
+                double cpy = ep.yp1.open ? ep.yp1.c_m1 : ep.c_m1;
+                double cmx = ep.xm1.open ? ep.xm1.c_m1 : ep.c_m1;
+                double cmy = ep.ym1.open ? ep.ym1.c_m1 : ep.c_m1;
+
+                ep.c += (MigrationSimulation.DiffC*MelaMigration.dt/(grain*grain))*(cpx+cpy+cmx+cmy-4.0*ep.c_m1);
+            }
+        }; */
     }
 
-    public double[] meanProfile(){
-        double[] dOut = new double[profile.length];
-        for(int i = 0; i<profile.length; i++){
-            double dMean = 0;
-            for(int j = 0; j<profile[i].length; j++){
-                dMean+=profile[i][j];
-            }
-            dMean/=profile[i].length;
-            dOut[i] = dMean;
-        }
-        return dOut;
+    public boolean GetIsOpen(double cx, double cy){
+
+        double[] lc = ConvertCoordinatesToDouble(cx,cy);
+
+        EnvironmentPoint ep = profile.get((int)Math.round(lc[0])).get((int)Math.round(lc[1]));
+
+        return ep.open;
     }
 
-    private Complex[][] createKernel(int dx, int dy, double dsig){
+    public boolean GetCellPass(double cx, double cy){
 
-        int ixm = (int) Math.ceil(dx/2);
-        int iym = (int) Math.ceil(dy/2);
+        double[] lc = ConvertCoordinatesToDouble(cx,cy);
 
-        Complex[][] kernel = new Complex[dx][dy];
+        EnvironmentPoint ep = profile.get((int)Math.round(lc[0])).get((int)Math.round(lc[1]));
 
-        double total = 0;
+        return ep.open&&!ep.cellBlock;
+    }
 
-        for(int i=0; i<dx; i++){
-            for(int j=0; j<dy; j++){
-                double dVal = Math.exp(-((i-ixm)*(i-ixm))/(2*dsig*dsig))
-                            * Math.exp(-((j-iym)*(j-iym))/(2*dsig*dsig));
-                kernel[i][j] = new Complex();
-                kernel[i][j].real = dVal;
-                kernel[i][j].imag = 0;
-                total+=dVal;
+    public boolean GetIsFixed(double cx, double cy){
+
+        double[] lc = ConvertCoordinatesToDouble(cx,cy);
+
+        EnvironmentPoint ep = profile.get((int)Math.round(lc[0])).get((int)Math.round(lc[1]));
+
+        return ep.fixed;
+    }
+
+    public boolean GetIsStart(double cx, double cy){
+
+        double[] lc = ConvertCoordinatesToDouble(cx,cy);
+
+        EnvironmentPoint ep = profile.get((int)Math.round(lc[0])).get((int)Math.round(lc[1]));
+
+        return ep.start;
+    }
+
+    public boolean GetIsLost(double cx, double cy){
+
+        double[] lc = ConvertCoordinatesToDouble(cx,cy);
+
+        EnvironmentPoint ep = profile.get((int)Math.round(lc[0])).get((int)Math.round(lc[1]));
+
+        return ep.wrong;
+    }
+
+    public boolean GetIsCorrect(double cx, double cy){
+
+        double[] lc = ConvertCoordinatesToDouble(cx,cy);
+
+        EnvironmentPoint ep = profile.get((int)Math.round(lc[0])).get((int)Math.round(lc[1]));
+
+        return ep.right;
+    }
+
+    private double[] ConvertCoordinatesToDouble(double cx, double cy){
+
+        double x = cx/grain;
+        double y = cy/grain;
+
+        x = Math.max(1,Math.min(x,profile.size()-1)-1);
+        y = Math.max(1,Math.min(y,profile.get(0).size()-1)-1);
+
+        return new double[]{x,y};
+    }
+
+    public void Diffuse() {
+
+        // FIRST DO DIFFUSION AS NORMAL
+        double dx = grain;
+        double dt = AgentBasedSimulation.dt;
+
+        for(EnvironmentPoint ep : freepoints) ep.c_m2 = ep.c_m1;
+        for(EnvironmentPoint ep : freepoints) ep.c_m1 = ep.c;
+      /*  for(EnvironmentPoint ep : freepoints) ep.c2_m2 = ep.c2_m1;
+        for(EnvironmentPoint ep : freepoints) ep.c2_m1 = ep.c2;       */
+
+        double k = 2* DiffC*dt/(dx*dx);
+
+        freepoints.stream().parallel().forEach(ep -> {
+        //for (EnvironmentPoint ep : freepoints) {
+            double cpx, cpy, cmx, cmy;
+
+            if (ep.fixed) return;
+
+            cpx = ep.xp1.c_m1;
+            cpy = ep.yp1.c_m1;
+            cmx = ep.xm1.c_m1;
+            cmy = ep.ym1.c_m1;
+
+            // Eulerian FTCS
+            //ep.c += (MigrationSimulation.DiffC * MelaMigration.dt / (grain * grain)) * (cpx + cpy + cmx + cmy - 4.0 * ep.c_m1);
+
+            //DuFort Frankel
+            ep.c = ((1.0 - 2.0 * k) / (1.0 + 2.0 * k)) * ep.c_m2 + (k / (1.0 + 2.0 * k)) * (cpx + cmx + cpy + cmy);
+
+            ep.c+=production* AgentBasedSimulation.dt;
+        });
+
+
+        // THEN DO EXCHANGE FOR IMMOBILE FRACTION
+
+        /*freepoints.stream().parallel().forEach(ep -> {
+            double exchange = (ep.c * immobileOn - ep.c2 * immobileOff)*AgentBasedSimulation.dt;
+            ep.c-= exchange;
+            ep.c2+=exchange;
+        });*/
+
+        /*double k2 = 2* DiffC2*dt/(dx*dx);
+
+        if(AgentBasedSimulation.competivite){
+
+            for(EnvironmentPoint ep : freepoints){
+                double cpx, cpy, cmx, cmy;
+                if(ep.fixed) continue;
+
+                cpx = ep.xp1.c2_m1;
+                cpy = ep.yp1.c2_m1;
+                cmx = ep.xm1.c2_m1;
+                cmy = ep.ym1.c2_m1;
+
+                //ep.c2 += (MigrationSimulation.DiffC*MelaMigration.dt/(grain*grain))*(cpx+cpy+cmx+cmy-4.0*ep.c2_m1);
+
+                ep.c2 = ((1.0-2.0*k2)/(1.0+2.0*k2))*ep.c2_m2 + (k2/(1.0+2.0*k2))*(cpx + cmx + cpy + cmy);
             }
+        }   */
+    }
+
+    ArrayList<EnvironmentPoint> GetStartingPoints(){
+
+        ArrayList<EnvironmentPoint> points = new ArrayList<EnvironmentPoint>();
+
+        for(ArrayList<EnvironmentPoint> eps : profile){
+           for(EnvironmentPoint ep : eps){
+               if(ep.start) points.add(ep);
+           }
         }
-        BufferedImage bi = new BufferedImage(dx,dy,1);
-
-        for(int i=0; i<dx; i++){
-            for(int j=0; j<dy; j++){
-                double r = (150.0*(Math.sqrt(Math.sqrt(kernel[i][j].real*kernel[i][j].real+kernel[i][j].imag*kernel[i][j].imag))));
-                bi.setRGB(i,j,((int)r<<16)|(0<<8)|0);
-                kernel[i][j].real/=total;
-            }
-        }
-        kernel = f2d.fft(kernel);
-
-        ImageIcon icon = new ImageIcon(bi);
-        JOptionPane.showMessageDialog(null,icon);
-
-        return kernel;
+        return points;
     }
 }
